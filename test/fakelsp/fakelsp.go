@@ -153,7 +153,7 @@ func write(w *bufio.Writer, m message) {
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(data))
+	_, _ = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(data))
 	_, _ = w.Write(data)
 	_ = w.Flush()
 }
