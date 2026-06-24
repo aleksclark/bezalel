@@ -128,10 +128,10 @@ func (t *Toolbox) View(params ViewParams) (string, error) {
 		if len(line) > maxLineLength {
 			line = line[:maxLineLength] + "..."
 		}
-		buf.WriteString(fmt.Sprintf("%*d|%s\n", lineNumWidth, i+1, line))
+		fmt.Fprintf(&buf, "%*d|%s\n", lineNumWidth, i+1, line)
 	}
 
-	buf.WriteString(fmt.Sprintf("\n[Total lines: %d | Showing: %d-%d]", totalLines, offset+1, end))
+	fmt.Fprintf(&buf, "\n[Total lines: %d | Showing: %d-%d]", totalLines, offset+1, end)
 
 	return buf.String(), nil
 }
@@ -338,7 +338,7 @@ func (t *Toolbox) Ls(params LsParams) (string, error) {
 	walk(rootPath, "", 1)
 
 	if truncated {
-		buf.WriteString(fmt.Sprintf("\n... (truncated at %d entries)\n", maxLsEntries))
+		fmt.Fprintf(&buf, "\n... (truncated at %d entries)\n", maxLsEntries)
 	}
 
 	return buf.String(), nil
@@ -458,8 +458,8 @@ func generateUnifiedDiff(filename, oldContent, newContent string) string {
 	newLines := strings.Split(newContent, "\n")
 
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("--- a/%s\n", filename))
-	buf.WriteString(fmt.Sprintf("+++ b/%s\n", filename))
+	fmt.Fprintf(&buf, "--- a/%s\n", filename)
+	fmt.Fprintf(&buf, "+++ b/%s\n", filename)
 
 	// Find changed regions and output context
 	const contextLines = 3
@@ -524,9 +524,9 @@ func generateUnifiedDiff(filename, oldContent, newContent string) string {
 			newCtxEnd = len(newLines)
 		}
 
-		buf.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n",
+		fmt.Fprintf(&buf, "@@ -%d,%d +%d,%d @@\n",
 			ctxStart+1, ctxEnd-ctxStart,
-			newCtxStart+1, newCtxEnd-newCtxStart))
+			newCtxStart+1, newCtxEnd-newCtxStart)
 
 		// Context before
 		for k := ctxStart; k < c.oldStart; k++ {
@@ -708,7 +708,7 @@ func (t *Toolbox) grepWithGo(pattern, searchPath, include string) (string, error
 		if err != nil {
 			return nil
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck
 
 		scanner := bufio.NewScanner(f)
 		lineNum := 0

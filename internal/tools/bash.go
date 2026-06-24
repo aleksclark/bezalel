@@ -72,7 +72,7 @@ func (t *Toolbox) ExecBash(ctx context.Context, params BashParams) (*BashResult,
 		stdout, stderr, done, execErr := job.GetOutput()
 
 		if done {
-			t.shellMgr.KillJob(job.ID)
+			_ = t.shellMgr.KillJob(job.ID)
 			output := formatOutput(stdout, stderr, execErr)
 			return &BashResult{
 				Output:     output,

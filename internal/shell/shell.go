@@ -125,7 +125,7 @@ func (m *Manager) Exec(ctx context.Context, command, workingDir, description str
 			// Still running — promote to background
 			return nil, job, nil
 		case <-ctx.Done():
-			m.KillJob(job.ID)
+			_ = m.KillJob(job.ID)
 			return nil, nil, ctx.Err()
 		}
 	}

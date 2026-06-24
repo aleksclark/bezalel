@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"github.com/aleksclark/bezalel/internal/tools"
 )
@@ -22,7 +21,6 @@ const (
 type Server struct {
 	toolbox *tools.Toolbox
 	mux     *http.ServeMux
-	mu      sync.RWMutex
 }
 
 // New creates a new MCP server.
@@ -55,9 +53,9 @@ type jsonrpcRequest struct {
 }
 
 type jsonrpcResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      any    `json:"id,omitempty"`
-	Result  any    `json:"result,omitempty"`
+	JSONRPC string        `json:"jsonrpc"`
+	ID      any           `json:"id,omitempty"`
+	Result  any           `json:"result,omitempty"`
 	Error   *jsonrpcError `json:"error,omitempty"`
 }
 
@@ -69,7 +67,7 @@ type jsonrpcError struct {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -107,13 +105,13 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if rpcErr != nil {
 		resp := jsonrpcResponse{JSONRPC: "2.0", ID: req.ID, Error: rpcErr}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
 
 	resp := jsonrpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleInitialize(params json.RawMessage) any {
@@ -481,5 +479,5 @@ func writeError(w http.ResponseWriter, id any, code int, message string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
