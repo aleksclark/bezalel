@@ -9,8 +9,10 @@ An MCP (Model Context Protocol) server sidecar that provides AI agent execution 
 Bezalel runs as a sidecar container in Kubernetes pods, exposing a complete development environment over MCP's Streamable HTTP transport. It is designed for AI agent loops where each iteration may execute on a different machine, but needs consistent access to:
 
 - **Shell execution** with background job management (foreground with auto-background promotion)
-- **Filesystem operations** (read, write, edit, delete, list, glob, grep)
+- **Filesystem operations** (read, write, edit, multiedit, delete, list, glob, grep)
 - **Process lifecycle** (start, poll, kill background jobs)
+- **Network fetch** (download to disk, fetch URL content as text/markdown/html)
+- **LSP integration** (diagnostics, references, and lifecycle management for pod-installed language servers)
 
 ## Design Principles
 
@@ -33,6 +35,13 @@ Bezalel runs as a sidecar container in Kubernetes pods, exposing a complete deve
 | `ls` | List directory tree |
 | `glob` | Find files by glob pattern (uses ripgrep when available) |
 | `grep` | Search file contents (uses ripgrep when available) |
+| `multiedit` | Apply multiple find-and-replace edits to a file atomically |
+| `download` | Download a URL to a local file (streaming) |
+| `fetch` | Fetch a URL and return its content inline (text/markdown/html) |
+| `web_fetch` | Fetch a URL, spilling oversized content to a temp file |
+| `lsp_diagnostics` | Compiler/linter diagnostics from configured language servers |
+| `lsp_references` | Find references to a symbol via a language server |
+| `lsp_restart` | Restart a language server (or all of them) |
 
 ## Configuration
 
@@ -51,6 +60,32 @@ or a config file (`bezalel.yaml`/`.json`/`.toml` in `.`, `$HOME/.config/bezalel/
 When `--auth-token`/`BEZALEL_AUTH_TOKEN` is set, every `/mcp` request must include an
 `Authorization: Bearer <token>` header. If no token is configured the server logs a
 warning on startup and `/mcp` is publicly accessible.
+
+### Language servers
+
+The `lsp_*` tools require language servers to be installed in the pod (bundled in
+the image or added by the operator). Bezalel manages their lifecycle: servers are
+started lazily on first use, reused across requests, and shut down on exit.
+Declare them under the `lsp` key in the config file:
+
+```yaml
+lsp:
+  - name: gopls
+    command: gopls
+    args: []
+    extensions: [".go"]
+    root_markers: ["go.mod", "go.work"]
+    language_id: go
+  - name: pyright
+    command: pyright-langserver
+    args: ["--stdio"]
+    extensions: [".py", ".pyi"]
+    language_id: python
+```
+
+`lsp_restart` stops a server (or all of them when `name` is omitted) so it
+reinitializes on next use — handy after changing toolchains or when a server
+gets wedged.
 
 ## Status
 

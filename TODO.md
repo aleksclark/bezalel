@@ -14,53 +14,15 @@ Tools required to reach parity with Crush's filesystem/process-dependent tools.
 - [x] `ls` — Directory tree listing
 - [x] `glob` — Find files by glob pattern (ripgrep + fallback)
 - [x] `grep` — Search file contents (ripgrep + fallback)
+- [x] `multiedit` — Batch find-and-replace operations on a single file (atomic)
+- [x] `download` — Download a URL to a local file (streaming)
+- [x] `fetch` — Fetch URL content inline as text/markdown/html
+- [x] `web_fetch` — Fetch URL content, spilling oversized content to a temp file
+- [x] `lsp_diagnostics` — Compiler/linter diagnostics from configured language servers
+- [x] `lsp_references` — Find references to a symbol via LSP
+- [x] `lsp_restart` — Restart a language server (or all of them)
 
 ## Not Yet Implemented
-
-### High Priority (core coding workflow)
-
-- [ ] `multiedit` — Batch multiple find-and-replace operations on a single file
-  - Crush exposes this as a separate tool so the LLM can make several edits atomically
-  - Params: `file_path`, `edits: [{old_string, new_string, replace_all}]`
-  - Edits applied sequentially; partial failure reports which edits succeeded/failed
-  - Returns unified diff of the combined changes
-  - Reference: `crush/internal/agent/tools/multiedit.go`
-
-- [ ] `download` — Download a URL to a local file
-  - HTTP GET with streaming write to disk
-  - Params: `url`, `file_path`, `timeout` (optional, max 600s)
-  - Creates parent directories automatically
-  - Returns file size and path on success
-  - Reference: `crush/internal/agent/tools/download.go`
-
-### Medium Priority (network + filesystem hybrid)
-
-- [ ] `fetch` — Fetch URL content and return as text/markdown/html
-  - HTTP GET, converts HTML to markdown via goquery + html-to-markdown
-  - Params: `url`, `format` (text|markdown|html)
-  - Truncates large responses; optionally saves to temp file when oversized
-  - Separate from `download` (fetch returns content inline, download saves to disk)
-  - Reference: `crush/internal/agent/tools/fetch.go`
-
-- [ ] `web_fetch` — Simplified fetch for sub-agents (no permissions)
-  - Same as fetch but skips permission checks
-  - Saves large content to temp file in working directory, returns path
-  - Reference: `crush/internal/agent/tools/web_fetch.go`
-
-### Lower Priority (LSP integration)
-
-- [ ] `lsp_diagnostics` — Get compiler/linter diagnostics from language servers
-  - Requires running LSP sub-processes inside the pod
-  - Params: `file_path` (optional — empty = project-wide)
-  - Returns structured diagnostic messages (errors, warnings) with locations
-  - Significant complexity: LSP lifecycle management, multi-language support
-  - Reference: `crush/internal/agent/tools/diagnostics.go`
-
-- [ ] `lsp_references` — Find all references to a symbol via LSP
-  - Requires active LSP sessions with workspace indexing
-  - Params: `symbol`, `path` (optional scope)
-  - Uses grep to find candidate files, then LSP textDocument/references
-  - Reference: `crush/internal/agent/tools/references.go`
 
 ### Not Applicable (handled outside the pod)
 
@@ -77,7 +39,7 @@ on local filesystem or process execution:
 - [ ] Configurable command blocklist (Crush's `bannedCommands` + `BlockFunc`)
 - [ ] Safe command detection (read-only commands skip permission checks)
 - [ ] Output truncation metadata (return truncation info alongside content)
-- [ ] LSP server lifecycle manager (start/stop/restart language servers)
+- [x] LSP server lifecycle manager (lazy start, restart, shutdown — `internal/lsp`)
 - [ ] File change tracking / history (undo support for edit/write/delete)
 
 ## Architecture Notes
@@ -91,10 +53,28 @@ container. This means:
 - Process signals (SIGTERM/SIGKILL) work correctly for job_kill
 - Environment variable isolation is handled by the container, not the interpreter
 
-For LSP tools, the key decision is whether to:
-1. Bundle language servers in the container image (larger image, zero-config)
-2. Let the agent install them at runtime (smaller image, first-run cost)
-3. Make them optional sidecar containers (composable, k8s-native)
+### LSP integration (implemented)
 
-Option 3 is most aligned with the k8s operator model — the operator's CRD
-could specify which language servers to attach based on the project's languages.
+Language servers are assumed to be **installed in the pod environment** (bundled
+in the image or added by the operator's CRD). Bezalel owns their *lifecycle*:
+`internal/lsp` lazily starts each configured server on first use, performs the
+LSP `initialize` handshake, demuxes JSON-RPC over stdio, collects
+`publishDiagnostics`, resolves `textDocument/references`, and shuts servers down
+on exit. `lsp_restart` stops a server so it relaunches (reinitializes) on next
+use.
+
+Servers are declared in config under the `lsp` key, e.g.:
+
+```yaml
+lsp:
+  - name: gopls
+    command: gopls
+    extensions: [".go"]
+    root_markers: ["go.mod", "go.work"]
+    language_id: go
+```
+
+`lsp_references` locates candidate positions with a grep-style scan (restricted
+to configured extensions) and then resolves them via `textDocument/references`,
+mirroring Crush's approach.
+

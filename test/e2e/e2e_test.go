@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -104,18 +105,40 @@ func TestMain(m *testing.M) {
 // startHarness builds (if needed) and runs the bezalel container.
 func startHarness(t *testing.T) *harness {
 	t.Helper()
+	workspace := t.TempDir()
+	// Container runs as the host UID; ensure it can write into the mounted dir.
+	if err := os.Chmod(workspace, 0o777); err != nil {
+		t.Fatalf("chmod workspace: %v", err)
+	}
+	return runContainer(t, workspace)
+}
+
+// startHarnessWithLSP seeds the workspace with the fake language server binary
+// and a bezalel.yaml configuring it, then starts the container.
+func startHarnessWithLSP(t *testing.T) *harness {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.Chmod(workspace, 0o777); err != nil {
+		t.Fatalf("chmod workspace: %v", err)
+	}
+	buildFakeLSP(t, workspace)
+	writeLSPConfig(t, workspace)
+	return runContainer(t, workspace)
+}
+
+func runContainer(t *testing.T, workspace string) *harness {
+	t.Helper()
 
 	image := os.Getenv("BEZALEL_IMAGE")
 	if image == "" {
 		image = "bezalel:e2e"
 		buildImage(t, image)
 	}
+	return runContainerImage(t, workspace, image)
+}
 
-	workspace := t.TempDir()
-	// Container runs as root; ensure it can write into the mounted dir.
-	if err := os.Chmod(workspace, 0o777); err != nil {
-		t.Fatalf("chmod workspace: %v", err)
-	}
+func runContainerImage(t *testing.T, workspace, image string) *harness {
+	t.Helper()
 
 	runArgs := []string{
 		"run", "-d", "--rm",
@@ -143,6 +166,36 @@ func startHarness(t *testing.T) *harness {
 
 	waitHealthy(t, h)
 	return h
+}
+
+// buildFakeLSP compiles the static fake language server into the workspace so
+// the container can execute it at /workspace/fake-lsp.
+func buildFakeLSP(t *testing.T, workspace string) {
+	t.Helper()
+	out := filepath.Join(workspace, "fake-lsp")
+	cmd := exec.Command("go", "build", "-o", out, "./test/fakelsp/cmd/fakelsp")
+	cmd.Dir = "../.."
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake-lsp: %v\n%s", err, b)
+	}
+	if err := os.Chmod(out, 0o755); err != nil {
+		t.Fatalf("chmod fake-lsp: %v", err)
+	}
+}
+
+func writeLSPConfig(t *testing.T, workspace string) {
+	t.Helper()
+	const cfg = `lsp:
+  - name: fake
+    command: /workspace/fake-lsp
+    extensions:
+      - ".txt"
+    language_id: plaintext
+`
+	if err := os.WriteFile(filepath.Join(workspace, "bezalel.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write bezalel.yaml: %v", err)
+	}
 }
 
 func buildImage(t *testing.T, tag string) {
@@ -247,7 +300,7 @@ func TestToolsListExposesAllTools(t *testing.T) {
 	for _, tool := range res.Tools {
 		got[tool.Name] = true
 	}
-	want := []string{"bash", "job_output", "job_kill", "view", "write", "edit", "delete", "ls", "glob", "grep"}
+	want := []string{"bash", "job_output", "job_kill", "view", "write", "edit", "delete", "ls", "glob", "grep", "multiedit", "download", "fetch", "web_fetch", "lsp_diagnostics", "lsp_references", "lsp_restart"}
 	for _, name := range want {
 		if !got[name] {
 			t.Errorf("tools/list missing %q (got %v)", name, got)
@@ -466,6 +519,264 @@ func TestBashBackgroundJobLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(firstText(t, kill), jobID) {
 		t.Errorf("job_kill response missing job id %q:\n%s", jobID, firstText(t, kill))
+	}
+}
+
+func TestMultiEditViaVolume(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/multi.txt", []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "multiedit", map[string]any{
+		"file_path": "multi.txt",
+		"edits": []any{
+			map[string]any{"old_string": "alpha", "new_string": "ALPHA"},
+			map[string]any{"old_string": "gamma", "new_string": "GAMMA"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("multiedit error: %s", firstText(t, res))
+	}
+
+	data, err := os.ReadFile(h.workspace + "/multi.txt")
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if string(data) != "ALPHA\nbeta\nGAMMA\n" {
+		t.Errorf("multiedit produced unexpected content: %q", string(data))
+	}
+}
+
+func TestMultiEditAtomicFailureViaVolume(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	const original = "one\ntwo\n"
+	if err := os.WriteFile(h.workspace+"/atomic.txt", []byte(original), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "multiedit", map[string]any{
+		"file_path": "atomic.txt",
+		"edits": []any{
+			map[string]any{"old_string": "one", "new_string": "ONE"},
+			map[string]any{"old_string": "nonexistent", "new_string": "X"},
+		},
+	})
+	if !res.IsError {
+		t.Fatalf("expected multiedit to fail, got: %s", firstText(t, res))
+	}
+
+	data, _ := os.ReadFile(h.workspace + "/atomic.txt")
+	if string(data) != original {
+		t.Errorf("file changed despite failed multiedit: %q", string(data))
+	}
+}
+
+func TestDownloadWritesVolumeFile(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	// The container can reach its own health endpoint; use it as a stable source.
+	res := callTool(ctx, t, c, "download", map[string]any{
+		"url":       "http://localhost:8080/health",
+		"file_path": "downloads/health.json",
+	})
+	if res.IsError {
+		t.Fatalf("download error: %s", firstText(t, res))
+	}
+
+	data, err := os.ReadFile(h.workspace + "/downloads/health.json")
+	if err != nil {
+		t.Fatalf("read downloaded file from volume: %v", err)
+	}
+	if !strings.Contains(string(data), `"status":"ok"`) {
+		t.Errorf("downloaded content unexpected: %q", string(data))
+	}
+}
+
+func TestDownloadRejectsBadSchemeViaContainer(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "download", map[string]any{
+		"url":       "ftp://example.com/file",
+		"file_path": "x.bin",
+	})
+	if !res.IsError {
+		t.Fatalf("expected scheme rejection, got: %s", firstText(t, res))
+	}
+}
+
+func TestFetchReturnsInlineContent(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "fetch", map[string]any{
+		"url": "http://localhost:8080/health",
+	})
+	if res.IsError {
+		t.Fatalf("fetch error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "ok") {
+		t.Errorf("fetch did not return health body:\n%s", firstText(t, res))
+	}
+}
+
+func TestWebFetchReturnsInlineContent(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "web_fetch", map[string]any{
+		"url": "http://localhost:8080/health",
+	})
+	if res.IsError {
+		t.Fatalf("web_fetch error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "ok") {
+		t.Errorf("web_fetch did not return health body:\n%s", firstText(t, res))
+	}
+}
+
+func TestLspDiagnosticsE2E(t *testing.T) {
+	h := startHarnessWithLSP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/bad.txt", []byte("line one\nhas a BUG here\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "lsp_diagnostics", map[string]any{"file_path": "bad.txt"})
+	if res.IsError {
+		t.Fatalf("lsp_diagnostics error: %s", firstText(t, res))
+	}
+	text := firstText(t, res)
+	if !strings.Contains(text, "found BUG marker") {
+		t.Errorf("expected diagnostic in output:\n%s", text)
+	}
+}
+
+func TestLspDiagnosticsCleanE2E(t *testing.T) {
+	h := startHarnessWithLSP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/good.txt", []byte("all clear\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "lsp_diagnostics", map[string]any{"file_path": "good.txt"})
+	if res.IsError {
+		t.Fatalf("lsp_diagnostics error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "No problems") {
+		t.Errorf("expected clean result:\n%s", firstText(t, res))
+	}
+}
+
+func TestLspReferencesE2E(t *testing.T) {
+	h := startHarnessWithLSP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/code.txt", []byte("alpha beta\ngamma widget delta\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "lsp_references", map[string]any{"symbol": "widget"})
+	if res.IsError {
+		t.Fatalf("lsp_references error: %s", firstText(t, res))
+	}
+	text := firstText(t, res)
+	if !strings.Contains(text, "code.txt") || !strings.Contains(text, "reference(s)") {
+		t.Errorf("expected references to code.txt:\n%s", text)
+	}
+}
+
+func TestLspRestartE2E(t *testing.T) {
+	h := startHarnessWithLSP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/f.txt", []byte("BUG\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	// Start the server.
+	if res := callTool(ctx, t, c, "lsp_diagnostics", map[string]any{"file_path": "f.txt"}); res.IsError {
+		t.Fatalf("initial diagnostics error: %s", firstText(t, res))
+	}
+
+	// Restart it.
+	res := callTool(ctx, t, c, "lsp_restart", map[string]any{"name": "fake"})
+	if res.IsError {
+		t.Fatalf("lsp_restart error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "Restarted") {
+		t.Errorf("expected restart confirmation:\n%s", firstText(t, res))
+	}
+
+	// Diagnostics should still work after the lazy relaunch.
+	res = callTool(ctx, t, c, "lsp_diagnostics", map[string]any{"file_path": "f.txt"})
+	if res.IsError {
+		t.Fatalf("post-restart diagnostics error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "found BUG marker") {
+		t.Errorf("expected diagnostics after restart:\n%s", firstText(t, res))
+	}
+}
+
+func TestLspWithoutConfigErrorsE2E(t *testing.T) {
+	h := startHarness(t) // no LSP config
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "lsp_diagnostics", map[string]any{"file_path": "x.txt"})
+	if !res.IsError {
+		t.Fatalf("expected error without LSP config, got: %s", firstText(t, res))
 	}
 }
 

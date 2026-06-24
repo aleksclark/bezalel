@@ -4,6 +4,7 @@ package tools
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -72,7 +73,7 @@ type GrepParams struct {
 }
 
 // View reads file contents with line-based pagination.
-func (t *Toolbox) View(params ViewParams) (string, error) {
+func (t *Toolbox) View(_ context.Context, params ViewParams) (string, error) {
 	if params.FilePath == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
@@ -137,7 +138,7 @@ func (t *Toolbox) View(params ViewParams) (string, error) {
 }
 
 // Write creates or overwrites a file.
-func (t *Toolbox) Write(params WriteParams) (string, error) {
+func (t *Toolbox) Write(_ context.Context, params WriteParams) (string, error) {
 	if params.FilePath == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
@@ -180,7 +181,7 @@ func (t *Toolbox) Write(params WriteParams) (string, error) {
 }
 
 // Edit performs find-and-replace in a file.
-func (t *Toolbox) Edit(params EditParams) (string, error) {
+func (t *Toolbox) Edit(_ context.Context, params EditParams) (string, error) {
 	if params.FilePath == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
@@ -226,7 +227,7 @@ func (t *Toolbox) Edit(params EditParams) (string, error) {
 }
 
 // Delete removes a file or directory.
-func (t *Toolbox) Delete(params DeleteParams) (string, error) {
+func (t *Toolbox) Delete(_ context.Context, params DeleteParams) (string, error) {
 	if params.FilePath == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
@@ -260,7 +261,7 @@ func (t *Toolbox) Delete(params DeleteParams) (string, error) {
 }
 
 // Ls lists directory contents in a tree-style format.
-func (t *Toolbox) Ls(params LsParams) (string, error) {
+func (t *Toolbox) Ls(_ context.Context, params LsParams) (string, error) {
 	rootPath := params.Path
 	if rootPath == "" {
 		rootPath = t.shellMgr.WorkingDir()
@@ -345,7 +346,7 @@ func (t *Toolbox) Ls(params LsParams) (string, error) {
 }
 
 // Glob finds files matching a glob pattern.
-func (t *Toolbox) Glob(params GlobParams) (string, error) {
+func (t *Toolbox) Glob(ctx context.Context, params GlobParams) (string, error) {
 	if params.Pattern == "" {
 		return "", fmt.Errorf("pattern is required")
 	}
@@ -359,7 +360,7 @@ func (t *Toolbox) Glob(params GlobParams) (string, error) {
 
 	// Try ripgrep first
 	if rgPath, err := exec.LookPath("rg"); err == nil {
-		return t.globWithRipgrep(rgPath, params.Pattern, searchPath)
+		return t.globWithRipgrep(ctx, rgPath, params.Pattern, searchPath)
 	}
 
 	// Fallback to Go filepath.WalkDir with pattern matching
@@ -367,7 +368,7 @@ func (t *Toolbox) Glob(params GlobParams) (string, error) {
 }
 
 // Grep searches file contents by regex pattern.
-func (t *Toolbox) Grep(params GrepParams) (string, error) {
+func (t *Toolbox) Grep(ctx context.Context, params GrepParams) (string, error) {
 	if params.Pattern == "" {
 		return "", fmt.Errorf("pattern is required")
 	}
@@ -381,7 +382,7 @@ func (t *Toolbox) Grep(params GrepParams) (string, error) {
 
 	// Try ripgrep first
 	if rgPath, err := exec.LookPath("rg"); err == nil {
-		return t.grepWithRipgrep(rgPath, params.Pattern, searchPath, params.Include)
+		return t.grepWithRipgrep(ctx, rgPath, params.Pattern, searchPath, params.Include)
 	}
 
 	// Fallback to Go implementation
@@ -575,8 +576,8 @@ func shouldIgnore(name string, patterns []string) bool {
 	return false
 }
 
-func (t *Toolbox) globWithRipgrep(rgPath, pattern, searchPath string) (string, error) {
-	cmd := exec.Command(rgPath, "--files", "--glob", pattern, searchPath)
+func (t *Toolbox) globWithRipgrep(ctx context.Context, rgPath, pattern, searchPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, rgPath, "--files", "--glob", pattern, searchPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -599,34 +600,12 @@ func (t *Toolbox) globWithRipgrep(rgPath, pattern, searchPath string) (string, e
 func (t *Toolbox) globWithGo(pattern, searchPath string) (string, error) {
 	var results []string
 
-	err := filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // Skip errors
+	walkFiles(searchPath, func(path string, d fs.DirEntry) bool {
+		if matched, _ := filepath.Match(pattern, d.Name()); matched {
+			results = append(results, path)
 		}
-		if len(results) >= maxGlobResults {
-			return filepath.SkipAll
-		}
-
-		name := d.Name()
-		// Skip hidden directories
-		if d.IsDir() && strings.HasPrefix(name, ".") {
-			return filepath.SkipDir
-		}
-		if d.IsDir() && (name == "node_modules" || name == "__pycache__") {
-			return filepath.SkipDir
-		}
-
-		if !d.IsDir() {
-			matched, _ := filepath.Match(pattern, name)
-			if matched {
-				results = append(results, path)
-			}
-		}
-		return nil
+		return len(results) < maxGlobResults
 	})
-	if err != nil {
-		return "", fmt.Errorf("glob walk error: %w", err)
-	}
 
 	if len(results) == 0 {
 		return "No matches found.", nil
@@ -639,13 +618,13 @@ func (t *Toolbox) globWithGo(pattern, searchPath string) (string, error) {
 	return output, nil
 }
 
-func (t *Toolbox) grepWithRipgrep(rgPath, pattern, searchPath, include string) (string, error) {
+func (t *Toolbox) grepWithRipgrep(ctx context.Context, rgPath, pattern, searchPath, include string) (string, error) {
 	args := []string{"--line-number", "--no-heading", "--max-count", "50", pattern, searchPath}
 	if include != "" {
 		args = []string{"--line-number", "--no-heading", "--max-count", "50", "--glob", include, pattern, searchPath}
 	}
 
-	cmd := exec.Command(rgPath, args...)
+	cmd := exec.CommandContext(ctx, rgPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -674,39 +653,23 @@ func (t *Toolbox) grepWithGo(pattern, searchPath, include string) (string, error
 
 	var results []string
 
-	walkErr := filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if len(results) >= maxGrepResults {
-			return filepath.SkipAll
-		}
-
-		name := d.Name()
-		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
+	walkFiles(searchPath, func(path string, d fs.DirEntry) bool {
 		// Check include filter
 		if include != "" {
-			matched, _ := filepath.Match(include, name)
-			if !matched {
-				return nil
+			if matched, _ := filepath.Match(include, d.Name()); !matched {
+				return true
 			}
 		}
 
 		// Skip binary/large files
 		info, err := d.Info()
 		if err != nil || info.Size() > maxReadSize {
-			return nil
+			return true
 		}
 
 		f, err := os.Open(path)
 		if err != nil {
-			return nil
+			return true
 		}
 		defer f.Close() //nolint:errcheck
 
@@ -718,15 +681,12 @@ func (t *Toolbox) grepWithGo(pattern, searchPath, include string) (string, error
 			if re.MatchString(line) {
 				results = append(results, fmt.Sprintf("%s:%d:%s", path, lineNum, line))
 				if len(results) >= maxGrepResults {
-					return filepath.SkipAll
+					return false
 				}
 			}
 		}
-		return nil
+		return true
 	})
-	if walkErr != nil {
-		return "", fmt.Errorf("grep walk error: %w", walkErr)
-	}
 
 	if len(results) == 0 {
 		return "No matches found.", nil

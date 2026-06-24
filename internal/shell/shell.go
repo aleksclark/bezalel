@@ -202,7 +202,10 @@ func (m *Manager) KillAll() {
 	})
 }
 
-func (m *Manager) startJob(ctx context.Context, command, workingDir, description string) (*BackgroundJob, error) {
+// startJob launches command as a tracked background job. The job runs under
+// its own context.Background()-derived context so it survives cancellation of
+// the originating request; the caller's ctx is intentionally not used here.
+func (m *Manager) startJob(_ context.Context, command, workingDir, description string) (*BackgroundJob, error) {
 	if m.jobCount.Load() >= MaxBackgroundJobs {
 		return nil, fmt.Errorf("maximum background jobs (%d) reached", MaxBackgroundJobs)
 	}
