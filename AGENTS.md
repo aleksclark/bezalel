@@ -53,12 +53,24 @@ Request flow: `cmd/bezalel/main.go` → `internal/cli` → `internal/server` →
   `2024-11-05`. **Tool schemas in `handleToolsList` and arg-unmarshalling in `handleToolsCall`
   are maintained by hand** — adding/changing a tool means editing both the schema block and the
   switch case, plus the param struct in `internal/tools`.
-- **`internal/tools`** — `Toolbox` wraps a `*shell.Manager`. `bash.go` has shell/job tools;
-  `filesystem.go` has view/write/edit/delete/ls/glob/grep. Each tool has a `XxxParams` struct
-  with json tags matching the schema. Relative paths are resolved against the manager's working
-  dir via `resolvePath` (absolute paths pass through unchanged).
+- **`internal/tools`** — `Toolbox` wraps a `*shell.Manager` and an `*lsp.Manager`. `bash.go` has
+  shell/job tools; `filesystem.go` has view/write/edit/delete/ls/glob/grep; `multiedit.go` has the
+  atomic batch-edit tool; `web.go` has download/fetch/web_fetch; `lsp.go` has
+  lsp_diagnostics/lsp_references/lsp_restart. Each tool has a `XxxParams` struct with json tags
+  matching the schema. Relative paths are resolved against the manager's working dir via
+  `resolvePath` (absolute paths pass through unchanged). Build a Toolbox with
+  `tools.NewToolboxWithOptions(tools.Options{...})`; `tools.NewToolbox(workdir)` is the no-LSP shortcut.
 - **`internal/shell/shell.go`** — `Manager` runs commands via `sh -c` and tracks background jobs
   in a `sync.Map`. Job IDs are uppercase hex counters (e.g. `001`, `00A`).
+- **`internal/lsp`** — Minimal LSP client (`lsp.go`) and lifecycle `Manager` (`manager.go`).
+  Language servers are assumed installed in the pod; the manager lazily starts each configured
+  server on first use, does the `initialize` handshake, demuxes JSON-RPC over stdio (Content-Length
+  framing), stores `publishDiagnostics`, resolves `textDocument/references`, and answers
+  server→client requests (e.g. `workspace/configuration`) so real servers don't block. `Restart`
+  stops a client so it relaunches lazily. Servers are configured via the `lsp` key in config and
+  unmarshalled in `internal/cli`. The fake server in `test/fakelsp` (reused by unit tests via a
+  re-exec `TestMain` and compiled into a binary for e2e) makes the LSP tools testable without a
+  real language server.
 
 ## Key behaviors / gotchas
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aleksclark/bezalel/internal/lsp"
 	"github.com/aleksclark/bezalel/internal/shell"
 )
 
@@ -39,18 +40,35 @@ type JobKillParams struct {
 // Toolbox holds all tool implementations and their shared state.
 type Toolbox struct {
 	shellMgr *shell.Manager
+	lspMgr   *lsp.Manager
 }
 
-// NewToolbox creates a new toolbox with the given working directory.
+// Options configures a Toolbox.
+type Options struct {
+	// WorkingDir is the default working directory for tool execution.
+	WorkingDir string
+	// LSPServers configures the language servers bezalel will manage.
+	LSPServers []lsp.ServerConfig
+}
+
+// NewToolbox creates a new toolbox with the given working directory and no
+// language servers.
 func NewToolbox(workingDir string) *Toolbox {
+	return NewToolboxWithOptions(Options{WorkingDir: workingDir})
+}
+
+// NewToolboxWithOptions creates a new toolbox from the given options.
+func NewToolboxWithOptions(opts Options) *Toolbox {
 	return &Toolbox{
-		shellMgr: shell.NewManager(workingDir),
+		shellMgr: shell.NewManager(opts.WorkingDir),
+		lspMgr:   lsp.NewManager(opts.WorkingDir, opts.LSPServers),
 	}
 }
 
 // Shutdown cleans up all resources.
 func (t *Toolbox) Shutdown() {
 	t.shellMgr.KillAll()
+	t.lspMgr.Shutdown()
 }
 
 // ExecBash executes a shell command.

@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/aleksclark/bezalel/internal/lsp"
 	"github.com/aleksclark/bezalel/internal/server"
 )
 
@@ -109,13 +110,27 @@ func run(cmd *cobra.Command, _ []string) error {
 	addr := net.JoinHostPort(viper.GetString("host"), strconv.Itoa(viper.GetInt("port")))
 	authToken := viper.GetString("auth-token")
 
+	var lspServers []lsp.ServerConfig
+	if err := viper.UnmarshalKey("lsp", &lspServers); err != nil {
+		slog.Warn("failed to parse lsp config", "error", err)
+	}
+
 	srv := server.NewWithOptions(server.Options{
 		WorkingDir: workDir,
 		AuthToken:  authToken,
+		LSPServers: lspServers,
 	})
 
 	if !srv.AuthEnabled() {
 		slog.Warn("no auth token configured — /mcp is publicly accessible; set --auth-token or BEZALEL_AUTH_TOKEN")
+	}
+
+	if len(lspServers) > 0 {
+		names := make([]string, 0, len(lspServers))
+		for _, s := range lspServers {
+			names = append(names, s.Name)
+		}
+		slog.Info("language servers configured", "servers", strings.Join(names, ","))
 	}
 
 	httpServer := &http.Server{

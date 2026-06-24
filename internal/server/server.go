@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aleksclark/bezalel/internal/lsp"
 	"github.com/aleksclark/bezalel/internal/tools"
 )
 
@@ -26,6 +27,8 @@ type Options struct {
 	// AuthToken, when non-empty, requires clients to present it as a
 	// "Authorization: Bearer <token>" header on /mcp requests.
 	AuthToken string
+	// LSPServers configures the language servers bezalel will manage.
+	LSPServers []lsp.ServerConfig
 }
 
 // Server is the MCP HTTP server.
@@ -43,7 +46,10 @@ func New(workingDir string) *Server {
 // NewWithOptions creates a new MCP server from the given options.
 func NewWithOptions(opts Options) *Server {
 	s := &Server{
-		toolbox:   tools.NewToolbox(opts.WorkingDir),
+		toolbox: tools.NewToolboxWithOptions(tools.Options{
+			WorkingDir: opts.WorkingDir,
+			LSPServers: opts.LSPServers,
+		}),
 		mux:       http.NewServeMux(),
 		authToken: opts.AuthToken,
 	}
@@ -485,6 +491,50 @@ func (s *Server) handleToolsList() any {
 					"required": []string{"url"},
 				},
 			},
+			{
+				"name":        "lsp_diagnostics",
+				"description": "Get compiler/linter diagnostics from configured language servers. Provide file_path for a single file, or omit it for project-wide diagnostics.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "File to diagnose (omit for project-wide diagnostics)",
+						},
+					},
+				},
+			},
+			{
+				"name":        "lsp_references",
+				"description": "Find all references to a symbol via a language server. Uses grep to locate candidate positions, then resolves them with textDocument/references.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"symbol": map[string]any{
+							"type":        "string",
+							"description": "The symbol name to find references for",
+						},
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Directory or file to scope the search (defaults to working directory)",
+						},
+					},
+					"required": []string{"symbol"},
+				},
+			},
+			{
+				"name":        "lsp_restart",
+				"description": "Restart a language server (or all of them when name is omitted). Servers reinitialize lazily on next use.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name": map[string]any{
+							"type":        "string",
+							"description": "Name of the language server to restart (omit to restart all)",
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -650,6 +700,39 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (a
 			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
 		}
 		output, err := s.toolbox.WebFetch(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "lsp_diagnostics":
+		var p tools.LspDiagnosticsParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.LspDiagnostics(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "lsp_references":
+		var p tools.LspReferencesParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.LspReferences(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "lsp_restart":
+		var p tools.LspRestartParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.LspRestart(ctx, p)
 		if err != nil {
 			return toolResult(err.Error(), true), nil
 		}
