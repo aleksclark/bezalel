@@ -38,27 +38,36 @@ Request flow: `cmd/bezalel/main.go` → `internal/cli` → `internal/server` →
 → `internal/shell`.
 
 - **`cmd/bezalel/main.go`** — Tiny entrypoint; just calls `cli.Execute()`.
-- **`internal/cli/root.go`** — Cobra root command + Viper config. Every flag is bound to
-  viper via `BindPFlag`, so each setting resolves from CLI flag > env (`BEZALEL_*`, dashes →
-  underscores) > config file (`bezalel.yaml/json/toml`) > default. Owns the HTTP server
-  lifecycle: graceful shutdown on SIGINT/SIGTERM (10s timeout), then `srv.Shutdown()` kills
-  all background jobs. HTTP read/write timeouts are **5 minutes** (long-running commands).
-  Warns at startup when no auth token is set.
-- **`internal/server/server.go`** — Hand-rolled JSON-RPC 2.0 dispatcher. No MCP SDK on the
-  server side. Routes: `POST /mcp` (auth-wrapped) and `GET /health` (unauthenticated). Use
-  `server.NewWithOptions(server.Options{...})`; `server.New(workdir)` is a no-auth shortcut.
-  Bearer-token auth lives in `withAuth`/`authorized` using `crypto/subtle.ConstantTimeCompare`;
-  when `authToken == ""` requests pass through. Handles `initialize`, `tools/list`,
-  `tools/call`, `notifications/initialized` (returns 204). MCP protocol version is hardcoded
-  `2024-11-05`. **Tool schemas in `handleToolsList` and arg-unmarshalling in `handleToolsCall`
-  are maintained by hand** — adding/changing a tool means editing both the schema block and the
-  switch case, plus the param struct in `internal/tools`.
-- **`internal/tools`** — `Toolbox` wraps a `*shell.Manager` and an `*lsp.Manager`. `bash.go` has
-  shell/job tools; `filesystem.go` has view/write/edit/delete/ls/glob/grep; `multiedit.go` has the
-  atomic batch-edit tool; `web.go` has download/fetch/web_fetch; `lsp.go` has
-  lsp_diagnostics/lsp_references/lsp_restart. Each tool has a `XxxParams` struct with json tags
-  matching the schema. Relative paths are resolved against the manager's working dir via
-  `resolvePath` (absolute paths pass through unchanged). Build a Toolbox with
+- **`internal/version`** — Single source of truth for product name and version (`Name`, `Number`,
+  `UserAgent`). The CLI, MCP `serverInfo`, HTTP user-agent, and LSP `clientInfo` all read from here.
+- **`internal/cli/root.go`** — Cobra root command + Viper config. Flags are bound to viper via
+  `flags.VisitAll` + `BindPFlag` (skipping `--config`), so each setting resolves from CLI flag > env
+  (`BEZALEL_*`, dashes → underscores) > config file (`bezalel.yaml/json/toml`) > default. Language
+  servers are read from the `lsp` config key. Owns the HTTP server lifecycle: graceful shutdown on
+  SIGINT/SIGTERM (10s timeout), then `srv.Shutdown()` kills all background jobs. HTTP read/write
+  timeouts are **5 minutes** (long-running commands). Warns at startup when no auth token is set.
+- **`internal/server`** — Hand-rolled JSON-RPC 2.0 MCP server, split by concern:
+  - `server.go` — `Server` struct, `Options`, `New`/`NewWithOptions`, bearer-token auth
+    (`withAuth`/`authorized` via `crypto/subtle.ConstantTimeCompare`; when `authToken == ""` requests
+    pass through), `ServeHTTP`, `Shutdown`.
+  - `jsonrpc.go` — JSON-RPC types and the `POST /mcp` dispatch loop + `GET /health`. Routes
+    `initialize`, `tools/list`, `tools/call`, `notifications/initialized` (204).
+  - `mcp.go` — `initialize` handshake (echoes the client's `protocolVersion`, else `2024-11-05`) and
+    the thin `tools/call` → registry bridge.
+  - `registry.go` — the tool **registry**. `bind[P]` is a generic adapter turning any
+    `func(context.Context, P) (string, error)` into a handler, centralizing arg-unmarshalling and the
+    tool-error→`isError` convention. Also holds `toolResult` and the JSON-Schema builders
+    (`object`/`prop`/`enumProp`/`arrayProp`).
+  - `catalog.go` — `buildRegistry(tb)` registers every tool (name, description, schema, handler) in
+    **one place**. Adding/changing a tool means editing this one registration plus the `XxxParams`
+    struct + method in `internal/tools`; the schema and dispatch are no longer maintained separately.
+- **`internal/tools`** — `Toolbox` wraps a `*shell.Manager` and an `*lsp.Manager`. Every tool method
+  has the uniform signature `func(context.Context, XxxParams) (string, error)` so it can be `bind()`-ed
+  by the registry. `bash.go` has shell/job tools; `filesystem.go` has view/write/edit/delete/ls/glob/grep;
+  `multiedit.go` the atomic batch-edit; `web.go` download/fetch/web_fetch; `lsp.go`
+  lsp_diagnostics/lsp_references/lsp_restart; `walk.go` shared traversal helpers (`skipDirName`,
+  `walkFiles`, `hasExt`) used by glob/grep and the LSP scans. Relative paths resolve against the
+  manager's working dir via `resolvePath`. Build a Toolbox with
   `tools.NewToolboxWithOptions(tools.Options{...})`; `tools.NewToolbox(workdir)` is the no-LSP shortcut.
 - **`internal/shell/shell.go`** — `Manager` runs commands via `sh -c` and tracks background jobs
   in a `sync.Map`. Job IDs are uppercase hex counters (e.g. `001`, `00A`).

@@ -18,15 +18,6 @@ type BashParams struct {
 	RunInBackground bool   `json:"run_in_background,omitempty"`
 }
 
-// BashResult is the response from the bash tool.
-type BashResult struct {
-	Output     string `json:"output"`
-	ExitCode   int    `json:"exit_code,omitempty"`
-	Background bool   `json:"background,omitempty"`
-	JobID      string `json:"job_id,omitempty"`
-	WorkingDir string `json:"working_dir,omitempty"`
-}
-
 // JobOutputParams are the parameters for the job_output tool.
 type JobOutputParams struct {
 	JobID string `json:"job_id"`
@@ -71,10 +62,12 @@ func (t *Toolbox) Shutdown() {
 	t.lspMgr.Shutdown()
 }
 
-// ExecBash executes a shell command.
-func (t *Toolbox) ExecBash(ctx context.Context, params BashParams) (*BashResult, error) {
+// ExecBash executes a shell command, returning its combined output. Commands
+// that outlive the auto-background threshold (or are started with
+// run_in_background) return a job-id message instead.
+func (t *Toolbox) ExecBash(ctx context.Context, params BashParams) (string, error) {
 	if params.Command == "" {
-		return nil, fmt.Errorf("command is required")
+		return "", fmt.Errorf("command is required")
 	}
 
 	t.shellMgr.Cleanup()
@@ -82,57 +75,37 @@ func (t *Toolbox) ExecBash(ctx context.Context, params BashParams) (*BashResult,
 	if params.RunInBackground {
 		job, err := t.shellMgr.ExecBackground(ctx, params.Command, params.WorkingDir, params.Description)
 		if err != nil {
-			return nil, fmt.Errorf("failed to start background job: %w", err)
+			return "", fmt.Errorf("failed to start background job: %w", err)
 		}
 
 		// Wait briefly to detect fast failures
 		time.Sleep(1 * time.Second)
-		stdout, stderr, done, execErr := job.GetOutput()
+		stdout, stderr, done, _ := job.GetOutput()
 
 		if done {
 			_ = t.shellMgr.KillJob(job.ID)
-			output := formatOutput(stdout, stderr, execErr)
-			return &BashResult{
-				Output:     output,
-				ExitCode:   shell.ExitCodeFromError(execErr),
-				WorkingDir: job.WorkingDir,
-			}, nil
+			return formatOutput(stdout, stderr), nil
 		}
 
-		return &BashResult{
-			Output:     fmt.Sprintf("Background job started with ID: %s\n\nUse job_output to view output or job_kill to terminate.", job.ID),
-			Background: true,
-			JobID:      job.ID,
-			WorkingDir: job.WorkingDir,
-		}, nil
+		return fmt.Sprintf("Background job started with ID: %s\n\nUse job_output to view output or job_kill to terminate.", job.ID), nil
 	}
 
 	// Synchronous execution with auto-background
 	result, job, err := t.shellMgr.Exec(ctx, params.Command, params.WorkingDir, params.Description)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	if job != nil {
 		// Promoted to background
-		return &BashResult{
-			Output:     fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground job ID: %s\n\nUse job_output to view output or job_kill to terminate.", job.ID),
-			Background: true,
-			JobID:      job.ID,
-			WorkingDir: job.WorkingDir,
-		}, nil
+		return fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground job ID: %s\n\nUse job_output to view output or job_kill to terminate.", job.ID), nil
 	}
 
-	output := formatOutput(result.Stdout, result.Stderr, nil)
+	output := formatOutput(result.Stdout, result.Stderr)
 	if result.ExitCode != 0 {
 		output += fmt.Sprintf("\nExit code %d", result.ExitCode)
 	}
-
-	return &BashResult{
-		Output:     output,
-		ExitCode:   result.ExitCode,
-		WorkingDir: params.WorkingDir,
-	}, nil
+	return output, nil
 }
 
 // GetJobOutput retrieves the current output of a background job.
@@ -161,7 +134,7 @@ func (t *Toolbox) GetJobOutput(ctx context.Context, params JobOutputParams) (str
 		status = "running"
 	}
 
-	output := formatOutput(stdout, stderr, nil)
+	output := formatOutput(stdout, stderr)
 	if output == "" {
 		output = "no output"
 	}
@@ -183,7 +156,7 @@ func (t *Toolbox) KillJob(ctx context.Context, params JobKillParams) (string, er
 	return fmt.Sprintf("Background job %s terminated successfully", params.JobID), nil
 }
 
-func formatOutput(stdout, stderr string, err error) string {
+func formatOutput(stdout, stderr string) string {
 	stdout = shell.TruncateOutput(stdout)
 	stderr = shell.TruncateOutput(stderr)
 

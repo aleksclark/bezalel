@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -23,7 +24,7 @@ type MultiEditParams struct {
 // MultiEdit applies multiple find-and-replace operations to a single file
 // sequentially. All edits are applied in order against the in-memory content
 // and written once at the end; if any edit fails, no changes are written.
-func (t *Toolbox) MultiEdit(params MultiEditParams) (string, error) {
+func (t *Toolbox) MultiEdit(_ context.Context, params MultiEditParams) (string, error) {
 	if params.FilePath == "" {
 		return "", fmt.Errorf("file_path is required")
 	}

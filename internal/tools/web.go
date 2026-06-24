@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/aleksclark/bezalel/internal/version"
 )
 
 const (
@@ -24,9 +26,10 @@ const (
 	defaultNetTimeout = 120 * time.Second
 	// maxNetTimeout is the maximum allowed HTTP timeout.
 	maxNetTimeout = 600 * time.Second
-	// userAgent identifies bezalel in outbound HTTP requests.
-	userAgent = "bezalel/0.1.0"
 )
+
+// userAgent identifies bezalel in outbound HTTP requests.
+const userAgent = version.UserAgent
 
 // DownloadParams are the parameters for the download tool.
 type DownloadParams struct {
