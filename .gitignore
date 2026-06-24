@@ -1,0 +1,10 @@
+# Binaries (root only)
+/bezalel
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
