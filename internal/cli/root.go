@@ -26,8 +26,8 @@ import (
 	"github.com/aleksclark/bezalel/internal/version"
 )
 
-// Version is the bezalel binary version.
-const Version = version.Number
+// Version is the bezalel binary version, sourced from internal/version.
+var Version = version.Number
 
 // envPrefix is the prefix for environment-variable configuration,
 // e.g. --auth-token maps to BEZALEL_AUTH_TOKEN.

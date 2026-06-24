@@ -87,6 +87,20 @@ lsp:
 reinitializes on next use — handy after changing toolchains or when a server
 gets wedged.
 
+## Releases
+
+Releases are cut by manually dispatching the **Release** workflow
+(`.github/workflows/release.yml`). It builds static `bezalel` binaries for
+`linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64`, attaches them
+(as `bezalel_<version>_<os>_<arch>.tar.gz` plus a `checksums.txt`) to a GitHub
+release, and tags the commit.
+
+Versioning is **CalVer** in the form `YYYYMM.DD.patch` (e.g. `202606.24.0`),
+which is also a valid SemVer `major.minor.patch` triple. The patch component
+auto-increments for multiple releases on the same UTC day. The version is
+injected into the binary at build time via `-ldflags` and is reported by
+`bezalel --version`.
+
 ## Status
 
 🚧 Initial spike.
