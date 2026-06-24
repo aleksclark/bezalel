@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aleksclark/bezalel/internal/server"
+	"github.com/aleksclark/bezalel/internal/version"
 )
 
 // rpcCall sends a JSON-RPC request and returns the parsed response.
@@ -146,8 +147,8 @@ func TestInitialize(t *testing.T) {
 	if info["name"] != "bezalel" {
 		t.Errorf("serverInfo.name = %v, want bezalel", info["name"])
 	}
-	if info["version"] != "0.1.0" {
-		t.Errorf("serverInfo.version = %v, want 0.1.0", info["version"])
+	if info["version"] != version.Number {
+		t.Errorf("serverInfo.version = %v, want %v", info["version"], version.Number)
 	}
 }
 

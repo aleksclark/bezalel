@@ -1,0 +1,107 @@
+name: Release
+
+# Builds bezalel for linux/darwin on amd64+arm64 and publishes the binaries as
+# GitHub release artifacts. Versioning is CalVer in the form YYYYMM.DD.patch,
+# which is also a valid SemVer major.minor.patch triple. The patch component
+# auto-increments for multiple releases on the same UTC day.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (YYYYMM.DD.patch). Leave blank to auto-compute."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags are required to compute the next patch number.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Sanity test
+        run: go test -count=1 ./internal/...
+
+      - name: Compute version
+        id: version
+        run: |
+          set -euo pipefail
+          override="${{ inputs.version }}"
+          if [ -n "$override" ]; then
+            version="$override"
+          else
+            day="$(date -u +%Y%m.%d)"
+            # Highest existing patch for today's date prefix, if any.
+            last="$(git tag -l "${day}.*" | sed "s/^${day}\.//" | sort -n | tail -1)"
+            if [ -z "$last" ]; then
+              patch=0
+            else
+              patch=$((last + 1))
+            fi
+            version="${day}.${patch}"
+          fi
+          # Validate SemVer-compatible MAJOR.MINOR.PATCH (all numeric).
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version '$version' is not a valid YYYYMM.DD.patch / SemVer triple"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version"
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ldflags="-s -w -X github.com/aleksclark/bezalel/internal/version.Number=${VERSION}"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            outdir="build/${goos}_${goarch}"
+            mkdir -p "$outdir"
+            echo "Building ${goos}/${goarch}..."
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "$ldflags" -o "${outdir}/bezalel" ./cmd/bezalel
+            tar -C "$outdir" -czf "dist/bezalel_${VERSION}_${goos}_${goarch}.tar.gz" bezalel
+          done
+          ( cd dist && sha256sum *.tar.gz > checksums.txt )
+          ls -l dist
+
+      - name: Verify injected version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The linux/amd64 binary runs on the runner; confirm the version stuck.
+          tar -xzf "dist/bezalel_${VERSION}_linux_amd64.tar.gz" -C /tmp
+          got="$(/tmp/bezalel --version | awk '{print $NF}')"
+          echo "binary reports: $got"
+          if [ "$got" != "$VERSION" ]; then
+            echo "::error::binary version '$got' != expected '$VERSION'"
+            exit 1
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # gh creates the tag at the current commit if it does not exist.
+          gh release create "$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --generate-notes \
+            dist/bezalel_*.tar.gz dist/checksums.txt

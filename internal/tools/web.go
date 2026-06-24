@@ -28,9 +28,6 @@ const (
 	maxNetTimeout = 600 * time.Second
 )
 
-// userAgent identifies bezalel in outbound HTTP requests.
-const userAgent = version.UserAgent
-
 // DownloadParams are the parameters for the download tool.
 type DownloadParams struct {
 	URL      string `json:"url"`
@@ -88,7 +85,7 @@ func httpGet(ctx context.Context, rawURL string, timeout time.Duration) (*http.R
 		cancel()
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", version.UserAgent())
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
