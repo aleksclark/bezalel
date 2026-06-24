@@ -85,24 +85,11 @@ func (t *Toolbox) diagnosticsForProject(ctx context.Context) (string, error) {
 
 	root := t.shellMgr.WorkingDir()
 	var files []string
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if len(files) >= maxProjectDiagFiles {
-			return filepath.SkipAll
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if exts[strings.ToLower(filepath.Ext(name))] {
+	walkFiles(root, func(p string, _ fs.DirEntry) bool {
+		if hasExt(p, exts) {
 			files = append(files, p)
 		}
-		return nil
+		return len(files) < maxProjectDiagFiles
 	})
 
 	if len(files) == 0 {
@@ -237,7 +224,7 @@ func (t *Toolbox) findSymbolCandidates(searchPath, symbol string, exts map[strin
 		if len(candidates) >= maxReferenceCandidates {
 			return
 		}
-		if len(exts) > 0 && !exts[strings.ToLower(filepath.Ext(p))] {
+		if !hasExt(p, exts) {
 			return
 		}
 		data, err := os.ReadFile(p)
@@ -261,22 +248,9 @@ func (t *Toolbox) findSymbolCandidates(searchPath, symbol string, exts map[strin
 		return candidates
 	}
 
-	_ = filepath.WalkDir(searchPath, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if len(candidates) >= maxReferenceCandidates {
-			return filepath.SkipAll
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
+	walkFiles(searchPath, func(p string, _ fs.DirEntry) bool {
 		scanFile(p)
-		return nil
+		return len(candidates) < maxReferenceCandidates
 	})
 	return candidates
 }

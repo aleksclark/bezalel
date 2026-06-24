@@ -19,6 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/aleksclark/bezalel/internal/version"
 )
 
 // ServerConfig describes a single language server and the files it handles.
@@ -186,7 +188,7 @@ func (c *Client) initialize(ctx context.Context) error {
 				"configuration": true,
 			},
 		},
-		"clientInfo": map[string]any{"name": "bezalel", "version": "0.1.0"},
+		"clientInfo": map[string]any{"name": version.Name, "version": version.Number},
 		"workspaceFolders": []map[string]any{
 			{"uri": pathToURI(c.rootDir), "name": filepath.Base(c.rootDir)},
 		},

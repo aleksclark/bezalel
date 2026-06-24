@@ -18,20 +18,20 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/aleksclark/bezalel/internal/lsp"
 	"github.com/aleksclark/bezalel/internal/server"
+	"github.com/aleksclark/bezalel/internal/version"
 )
 
-const (
-	// Version is the bezalel binary version.
-	Version = "0.1.0"
+// Version is the bezalel binary version.
+const Version = version.Number
 
-	// envPrefix is the prefix for environment-variable configuration,
-	// e.g. --auth-token maps to BEZALEL_AUTH_TOKEN.
-	envPrefix = "BEZALEL"
-)
+// envPrefix is the prefix for environment-variable configuration,
+// e.g. --auth-token maps to BEZALEL_AUTH_TOKEN.
+const envPrefix = "BEZALEL"
 
 var cfgFile string
 
@@ -54,12 +54,16 @@ func NewRootCmd() *cobra.Command {
 	flags.String("workdir", "", "working directory for tool execution (defaults to current directory)")
 	flags.String("auth-token", "", "bearer token required on /mcp requests (auth disabled if empty)")
 
-	// Bind every flag to viper so config-file and env values are honored.
-	for _, name := range []string{"host", "port", "workdir", "auth-token"} {
-		if err := viper.BindPFlag(name, flags.Lookup(name)); err != nil {
-			panic(fmt.Sprintf("bind flag %q: %v", name, err))
+	// Bind every flag (except --config, which targets cfgFile directly) to
+	// viper so config-file and env values are honored.
+	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Name == "config" {
+			return
 		}
-	}
+		if err := viper.BindPFlag(f.Name, f); err != nil {
+			panic(fmt.Sprintf("bind flag %q: %v", f.Name, err))
+		}
+	})
 
 	cobra.OnInitialize(initConfig)
 	return cmd
