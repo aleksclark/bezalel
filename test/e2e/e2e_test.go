@@ -134,6 +134,11 @@ func runContainer(t *testing.T, workspace string) *harness {
 		image = "bezalel:e2e"
 		buildImage(t, image)
 	}
+	return runContainerImage(t, workspace, image)
+}
+
+func runContainerImage(t *testing.T, workspace, image string) *harness {
+	t.Helper()
 
 	runArgs := []string{
 		"run", "-d", "--rm",

@@ -100,8 +100,12 @@ jobs:
       - name: Build Docker image
         run: docker build -t bezalel:e2e .
 
+      - name: Build Docker image with language servers
+        run: docker build -f Dockerfile.lsp -t bezalel:e2e-lsp .
+
       - name: Run e2e tests
         env:
           BEZALEL_IMAGE: bezalel:e2e
+          BEZALEL_LSP_IMAGE: bezalel:e2e-lsp
         run: go test -tags e2e -count=1 -v ./test/e2e/...
 

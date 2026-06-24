@@ -104,6 +104,16 @@ Request flow: `cmd/bezalel/main.go` → `internal/cli` → `internal/server` →
   root-owned files cause `unlinkat: permission denied` on teardown.
 - `TestMain` skips the whole suite (exit 0) if `docker` is not on PATH.
 - Host port is assigned dynamically (`-p 127.0.0.1::8080`) and discovered via `docker port`.
+- **LSP coverage** comes in two flavors. The `*_test.go` LSP tests use `test/fakelsp` (a
+  deterministic fake server) and the standard image. The `lsp_real_test.go` tests use a heavier
+  image built from `Dockerfile.lsp` that bundles **real** `gopls` and `typescript-language-server`
+  (plus the Go toolchain and Node.js); they seed broken Go/TS source and assert genuine compiler
+  diagnostics (type mismatches) and `gopls` references. That image is built once per `go test` run
+  (guarded by `sync.Once`) or reused via `BEZALEL_LSP_IMAGE`. CI builds it as `bezalel:e2e-lsp`.
+  Per-server `env` (HOME/GOPATH/GOCACHE/...) is supplied via the `lsp` config so the servers run as
+  the non-root host UID; `GOTOOLCHAIN=local` keeps gopls offline. Real-LSP diagnostics tests poll
+  `lsp_diagnostics` until the expected message appears, since real servers publish (and sometimes
+  re-publish) diagnostics asynchronously after warm-up.
 
 ## Conventions
 
