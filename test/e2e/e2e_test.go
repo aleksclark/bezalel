@@ -247,7 +247,7 @@ func TestToolsListExposesAllTools(t *testing.T) {
 	for _, tool := range res.Tools {
 		got[tool.Name] = true
 	}
-	want := []string{"bash", "job_output", "job_kill", "view", "write", "edit", "delete", "ls", "glob", "grep"}
+	want := []string{"bash", "job_output", "job_kill", "view", "write", "edit", "delete", "ls", "glob", "grep", "multiedit", "download", "fetch", "web_fetch"}
 	for _, name := range want {
 		if !got[name] {
 			t.Errorf("tools/list missing %q (got %v)", name, got)
@@ -466,6 +466,149 @@ func TestBashBackgroundJobLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(firstText(t, kill), jobID) {
 		t.Errorf("job_kill response missing job id %q:\n%s", jobID, firstText(t, kill))
+	}
+}
+
+func TestMultiEditViaVolume(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	if err := os.WriteFile(h.workspace+"/multi.txt", []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "multiedit", map[string]any{
+		"file_path": "multi.txt",
+		"edits": []any{
+			map[string]any{"old_string": "alpha", "new_string": "ALPHA"},
+			map[string]any{"old_string": "gamma", "new_string": "GAMMA"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("multiedit error: %s", firstText(t, res))
+	}
+
+	data, err := os.ReadFile(h.workspace + "/multi.txt")
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if string(data) != "ALPHA\nbeta\nGAMMA\n" {
+		t.Errorf("multiedit produced unexpected content: %q", string(data))
+	}
+}
+
+func TestMultiEditAtomicFailureViaVolume(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	const original = "one\ntwo\n"
+	if err := os.WriteFile(h.workspace+"/atomic.txt", []byte(original), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	res := callTool(ctx, t, c, "multiedit", map[string]any{
+		"file_path": "atomic.txt",
+		"edits": []any{
+			map[string]any{"old_string": "one", "new_string": "ONE"},
+			map[string]any{"old_string": "nonexistent", "new_string": "X"},
+		},
+	})
+	if !res.IsError {
+		t.Fatalf("expected multiedit to fail, got: %s", firstText(t, res))
+	}
+
+	data, _ := os.ReadFile(h.workspace + "/atomic.txt")
+	if string(data) != original {
+		t.Errorf("file changed despite failed multiedit: %q", string(data))
+	}
+}
+
+func TestDownloadWritesVolumeFile(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	// The container can reach its own health endpoint; use it as a stable source.
+	res := callTool(ctx, t, c, "download", map[string]any{
+		"url":       "http://localhost:8080/health",
+		"file_path": "downloads/health.json",
+	})
+	if res.IsError {
+		t.Fatalf("download error: %s", firstText(t, res))
+	}
+
+	data, err := os.ReadFile(h.workspace + "/downloads/health.json")
+	if err != nil {
+		t.Fatalf("read downloaded file from volume: %v", err)
+	}
+	if !strings.Contains(string(data), `"status":"ok"`) {
+		t.Errorf("downloaded content unexpected: %q", string(data))
+	}
+}
+
+func TestDownloadRejectsBadSchemeViaContainer(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "download", map[string]any{
+		"url":       "ftp://example.com/file",
+		"file_path": "x.bin",
+	})
+	if !res.IsError {
+		t.Fatalf("expected scheme rejection, got: %s", firstText(t, res))
+	}
+}
+
+func TestFetchReturnsInlineContent(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "fetch", map[string]any{
+		"url": "http://localhost:8080/health",
+	})
+	if res.IsError {
+		t.Fatalf("fetch error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "ok") {
+		t.Errorf("fetch did not return health body:\n%s", firstText(t, res))
+	}
+}
+
+func TestWebFetchReturnsInlineContent(t *testing.T) {
+	h := startHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	c := newClient(t, h.baseURL, authToken)
+	initClient(ctx, t, c)
+
+	res := callTool(ctx, t, c, "web_fetch", map[string]any{
+		"url": "http://localhost:8080/health",
+	})
+	if res.IsError {
+		t.Fatalf("web_fetch error: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "ok") {
+		t.Errorf("web_fetch did not return health body:\n%s", firstText(t, res))
 	}
 }
 

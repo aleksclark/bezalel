@@ -9,8 +9,9 @@ An MCP (Model Context Protocol) server sidecar that provides AI agent execution 
 Bezalel runs as a sidecar container in Kubernetes pods, exposing a complete development environment over MCP's Streamable HTTP transport. It is designed for AI agent loops where each iteration may execute on a different machine, but needs consistent access to:
 
 - **Shell execution** with background job management (foreground with auto-background promotion)
-- **Filesystem operations** (read, write, edit, delete, list, glob, grep)
+- **Filesystem operations** (read, write, edit, multiedit, delete, list, glob, grep)
 - **Process lifecycle** (start, poll, kill background jobs)
+- **Network fetch** (download to disk, fetch URL content as text/markdown/html)
 
 ## Design Principles
 
@@ -33,6 +34,10 @@ Bezalel runs as a sidecar container in Kubernetes pods, exposing a complete deve
 | `ls` | List directory tree |
 | `glob` | Find files by glob pattern (uses ripgrep when available) |
 | `grep` | Search file contents (uses ripgrep when available) |
+| `multiedit` | Apply multiple find-and-replace edits to a file atomically |
+| `download` | Download a URL to a local file (streaming) |
+| `fetch` | Fetch a URL and return its content inline (text/markdown/html) |
+| `web_fetch` | Fetch a URL, spilling oversized content to a temp file |
 
 ## Configuration
 

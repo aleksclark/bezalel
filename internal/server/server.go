@@ -381,6 +381,110 @@ func (s *Server) handleToolsList() any {
 					"required": []string{"pattern"},
 				},
 			},
+			{
+				"name":        "multiedit",
+				"description": "Apply multiple find-and-replace edits to a single file sequentially in one operation. All edits are applied atomically — if any edit fails, no changes are written. Returns a unified diff of the combined changes.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to edit",
+						},
+						"edits": map[string]any{
+							"type":        "array",
+							"description": "Edits applied in order. Each must have old_string and new_string; set replace_all for multiple occurrences.",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"old_string": map[string]any{
+										"type":        "string",
+										"description": "Text to find (must be unique unless replace_all=true)",
+									},
+									"new_string": map[string]any{
+										"type":        "string",
+										"description": "Replacement text",
+									},
+									"replace_all": map[string]any{
+										"type":        "boolean",
+										"description": "Replace all occurrences instead of requiring uniqueness (default: false)",
+									},
+								},
+								"required": []string{"old_string", "new_string"},
+							},
+						},
+					},
+					"required": []string{"file_path", "edits"},
+				},
+			},
+			{
+				"name":        "download",
+				"description": "Download a URL to a local file. Streams the response to disk, creating parent directories automatically. Returns the byte count on success.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "HTTP(S) URL to download",
+						},
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Local path to save the downloaded content",
+						},
+						"timeout": map[string]any{
+							"type":        "integer",
+							"description": "Timeout in seconds (default 120, max 600)",
+						},
+					},
+					"required": []string{"url", "file_path"},
+				},
+			},
+			{
+				"name":        "fetch",
+				"description": "Fetch a URL and return its content inline. HTML is converted to the requested format. Large responses are truncated.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "HTTP(S) URL to fetch",
+						},
+						"format": map[string]any{
+							"type":        "string",
+							"description": "Output format: text, markdown (default), or html",
+							"enum":        []string{"text", "markdown", "html"},
+						},
+						"timeout": map[string]any{
+							"type":        "integer",
+							"description": "Timeout in seconds (default 120, max 600)",
+						},
+					},
+					"required": []string{"url"},
+				},
+			},
+			{
+				"name":        "web_fetch",
+				"description": "Fetch a URL and return its content. Behaves like fetch but spills oversized content to a temp file in the working directory and returns the path.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "HTTP(S) URL to fetch",
+						},
+						"format": map[string]any{
+							"type":        "string",
+							"description": "Output format: text, markdown (default), or html",
+							"enum":        []string{"text", "markdown", "html"},
+						},
+						"timeout": map[string]any{
+							"type":        "integer",
+							"description": "Timeout in seconds (default 120, max 600)",
+						},
+					},
+					"required": []string{"url"},
+				},
+			},
 		},
 	}
 }
@@ -502,6 +606,50 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (a
 			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
 		}
 		output, err := s.toolbox.Grep(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "multiedit":
+		var p tools.MultiEditParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.MultiEdit(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "download":
+		var p tools.DownloadParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Download(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "fetch":
+		var p tools.FetchParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Fetch(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "web_fetch":
+		var p tools.WebFetchParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.WebFetch(ctx, p)
 		if err != nil {
 			return toolResult(err.Error(), true), nil
 		}

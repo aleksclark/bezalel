@@ -14,40 +14,19 @@ Tools required to reach parity with Crush's filesystem/process-dependent tools.
 - [x] `ls` — Directory tree listing
 - [x] `glob` — Find files by glob pattern (ripgrep + fallback)
 - [x] `grep` — Search file contents (ripgrep + fallback)
+- [x] `multiedit` — Batch find-and-replace operations on a single file (atomic)
+- [x] `download` — Download a URL to a local file (streaming)
+- [x] `fetch` — Fetch URL content inline as text/markdown/html
+- [x] `web_fetch` — Fetch URL content, spilling oversized content to a temp file
 
 ## Not Yet Implemented
 
-### High Priority (core coding workflow)
-
-- [ ] `multiedit` — Batch multiple find-and-replace operations on a single file
-  - Crush exposes this as a separate tool so the LLM can make several edits atomically
-  - Params: `file_path`, `edits: [{old_string, new_string, replace_all}]`
-  - Edits applied sequentially; partial failure reports which edits succeeded/failed
-  - Returns unified diff of the combined changes
-  - Reference: `crush/internal/agent/tools/multiedit.go`
-
-- [ ] `download` — Download a URL to a local file
-  - HTTP GET with streaming write to disk
-  - Params: `url`, `file_path`, `timeout` (optional, max 600s)
-  - Creates parent directories automatically
-  - Returns file size and path on success
-  - Reference: `crush/internal/agent/tools/download.go`
-
-### Medium Priority (network + filesystem hybrid)
-
-- [ ] `fetch` — Fetch URL content and return as text/markdown/html
-  - HTTP GET, converts HTML to markdown via goquery + html-to-markdown
-  - Params: `url`, `format` (text|markdown|html)
-  - Truncates large responses; optionally saves to temp file when oversized
-  - Separate from `download` (fetch returns content inline, download saves to disk)
-  - Reference: `crush/internal/agent/tools/fetch.go`
-
-- [ ] `web_fetch` — Simplified fetch for sub-agents (no permissions)
-  - Same as fetch but skips permission checks
-  - Saves large content to temp file in working directory, returns path
-  - Reference: `crush/internal/agent/tools/web_fetch.go`
-
 ### Lower Priority (LSP integration)
+
+> Deferred: the LSP tools depend on running language servers inside the pod, and
+> the bundling strategy (see "Architecture Notes" below) is still an open product
+> decision. They are intentionally left unimplemented until that is resolved so we
+> don't bake a language-server lifecycle manager into the image prematurely.
 
 - [ ] `lsp_diagnostics` — Get compiler/linter diagnostics from language servers
   - Requires running LSP sub-processes inside the pod
