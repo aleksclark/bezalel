@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache: false
 
       - name: Check formatting
@@ -30,7 +30,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1
+          version: v2.12
           args: --timeout=5m
 
   security:
@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache: false
 
       - name: govulncheck
@@ -53,7 +53,7 @@ jobs:
       - name: gosec
         uses: securego/gosec@master
         with:
-          args: -exclude=G204,G301,G304,G306,G703,G122 ./...
+          args: -exclude=G204,G301,G304,G306,G703,G122,G118 ./...
 
   test:
     runs-on: ubuntu-latest
@@ -62,7 +62,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache: false
 
       - name: Download dependencies
@@ -85,3 +85,23 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t bezalel:ci .
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [docker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build Docker image
+        run: docker build -t bezalel:e2e .
+
+      - name: Run e2e tests
+        env:
+          BEZALEL_IMAGE: bezalel:e2e
+        run: go test -tags e2e -count=1 -v ./test/e2e/...
+

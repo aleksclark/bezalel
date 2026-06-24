@@ -578,3 +578,64 @@ func TestConcurrentRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthRequiredWhenTokenSet(t *testing.T) {
+	srv := server.NewWithOptions(server.Options{WorkingDir: t.TempDir(), AuthToken: "s3cret"})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Shutdown()
+	})
+
+	if !srv.AuthEnabled() {
+		t.Fatal("expected AuthEnabled to be true")
+	}
+
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// No token -> 401
+	resp, err := http.Post(ts.URL+"/mcp", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("no token: status = %d, want 401", resp.StatusCode)
+	}
+
+	// Wrong token -> 401
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer wrong")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong token: status = %d, want 401", resp.StatusCode)
+	}
+
+	// Correct token -> 200
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/mcp", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer s3cret")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("correct token: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestNoAuthWhenTokenEmpty(t *testing.T) {
+	ts := startServer(t, t.TempDir())
+
+	resp := rpcCall(t, ts.URL, "tools/list", nil)
+	if _, ok := resp["result"].(map[string]any); !ok {
+		t.Fatalf("expected result without auth, got: %v", resp)
+	}
+}
