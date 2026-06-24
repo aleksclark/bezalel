@@ -89,6 +89,11 @@ func NewManager(workingDir string) *Manager {
 	}
 }
 
+// WorkingDir returns the manager's working directory.
+func (m *Manager) WorkingDir() string {
+	return m.workingDir
+}
+
 // Exec runs a command synchronously. If the command takes longer than
 // AutoBackgroundThreshold, it is promoted to a background job and the
 // job ID is returned instead.

@@ -186,6 +186,152 @@ func (s *Server) handleToolsList() any {
 					"required": []string{"job_id"},
 				},
 			},
+			{
+				"name":        "view",
+				"description": "Read file contents with line-based pagination. Returns numbered lines. Max file size 5MB.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to read",
+						},
+						"offset": map[string]any{
+							"type":        "integer",
+							"description": "0-based line number to start reading from (default: 0)",
+						},
+						"limit": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of lines to read (default: 2000)",
+						},
+					},
+					"required": []string{"file_path"},
+				},
+			},
+			{
+				"name":        "write",
+				"description": "Create or overwrite a file. Creates parent directories automatically.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to write",
+						},
+						"content": map[string]any{
+							"type":        "string",
+							"description": "Content to write to the file",
+						},
+					},
+					"required": []string{"file_path", "content"},
+				},
+			},
+			{
+				"name":        "edit",
+				"description": "Find-and-replace in a file. old_string must be unique unless replace_all is true. Returns a unified diff.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to edit",
+						},
+						"old_string": map[string]any{
+							"type":        "string",
+							"description": "Text to find in the file (must be unique unless replace_all=true)",
+						},
+						"new_string": map[string]any{
+							"type":        "string",
+							"description": "Replacement text",
+						},
+						"replace_all": map[string]any{
+							"type":        "boolean",
+							"description": "Replace all occurrences instead of requiring uniqueness (default: false)",
+						},
+					},
+					"required": []string{"file_path", "old_string", "new_string"},
+				},
+			},
+			{
+				"name":        "delete",
+				"description": "Remove a file or directory. Non-empty directories require recursive=true.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file or directory to delete",
+						},
+						"recursive": map[string]any{
+							"type":        "boolean",
+							"description": "Recursively delete non-empty directories (default: false)",
+						},
+					},
+					"required": []string{"file_path"},
+				},
+			},
+			{
+				"name":        "ls",
+				"description": "List directory contents in a tree-style format. Respects .gitignore-like patterns. Max 1000 entries.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Directory to list (defaults to working directory)",
+						},
+						"ignore": map[string]any{
+							"type":        "array",
+							"description": "Glob patterns to ignore",
+							"items":       map[string]any{"type": "string"},
+						},
+						"depth": map[string]any{
+							"type":        "integer",
+							"description": "Maximum directory depth to traverse (default: 3)",
+						},
+					},
+				},
+			},
+			{
+				"name":        "glob",
+				"description": "Find files matching a glob pattern. Uses ripgrep if available. Max 100 results.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"pattern": map[string]any{
+							"type":        "string",
+							"description": "Glob pattern to match files (e.g., '*.go', '**/*.json')",
+						},
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Directory to search in (defaults to working directory)",
+						},
+					},
+					"required": []string{"pattern"},
+				},
+			},
+			{
+				"name":        "grep",
+				"description": "Search file contents by regex pattern. Uses ripgrep if available. Max 50 matches. Returns filepath:line_number:content format.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"pattern": map[string]any{
+							"type":        "string",
+							"description": "Regex pattern to search for",
+						},
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Directory or file to search in (defaults to working directory)",
+						},
+						"include": map[string]any{
+							"type":        "string",
+							"description": "Glob filter to restrict which files are searched (e.g., '*.go')",
+						},
+					},
+					"required": []string{"pattern"},
+				},
+			},
 		},
 	}
 }
@@ -230,6 +376,83 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (a
 			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
 		}
 		output, err := s.toolbox.KillJob(ctx, p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "view":
+		var p tools.ViewParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.View(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "write":
+		var p tools.WriteParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Write(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "edit":
+		var p tools.EditParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Edit(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "delete":
+		var p tools.DeleteParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Delete(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "ls":
+		var p tools.LsParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Ls(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "glob":
+		var p tools.GlobParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Glob(p)
+		if err != nil {
+			return toolResult(err.Error(), true), nil
+		}
+		return toolResult(output, false), nil
+
+	case "grep":
+		var p tools.GrepParams
+		if err := json.Unmarshal(call.Arguments, &p); err != nil {
+			return nil, &jsonrpcError{Code: -32602, Message: fmt.Sprintf("Invalid arguments: %s", err)}
+		}
+		output, err := s.toolbox.Grep(p)
 		if err != nil {
 			return toolResult(err.Error(), true), nil
 		}
