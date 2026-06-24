@@ -34,9 +34,27 @@ Bezalel runs as a sidecar container in Kubernetes pods, exposing a complete deve
 | `glob` | Find files by glob pattern (uses ripgrep when available) |
 | `grep` | Search file contents (uses ripgrep when available) |
 
+## Configuration
+
+All settings can be supplied as a CLI flag, an environment variable (prefix `BEZALEL_`),
+or a config file (`bezalel.yaml`/`.json`/`.toml` in `.`, `$HOME/.config/bezalel/`, or
+`/etc/bezalel/`). Precedence: CLI flag > environment variable > config file > default.
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--host` | `BEZALEL_HOST` | (all interfaces) | Host/interface to bind |
+| `--port` | `BEZALEL_PORT` | `8080` | Port to listen on |
+| `--workdir` | `BEZALEL_WORKDIR` | current directory | Working directory for tool execution |
+| `--auth-token` | `BEZALEL_AUTH_TOKEN` | (none) | Bearer token required on `/mcp` requests |
+| `--config` | — | (auto-discovered) | Explicit config file path |
+
+When `--auth-token`/`BEZALEL_AUTH_TOKEN` is set, every `/mcp` request must include an
+`Authorization: Bearer <token>` header. If no token is configured the server logs a
+warning on startup and `/mcp` is publicly accessible.
+
 ## Status
 
-🚧 Initial spike — not yet functional.
+🚧 Initial spike.
 
 ## License
 

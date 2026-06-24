@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 COPY go.mod ./
@@ -16,4 +16,4 @@ WORKDIR /workspace
 EXPOSE 8080
 
 ENTRYPOINT ["bezalel"]
-CMD ["--addr", ":8080"]
+CMD ["--port", "8080"]
