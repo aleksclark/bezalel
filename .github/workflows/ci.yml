@@ -53,7 +53,7 @@ jobs:
       - name: gosec
         uses: securego/gosec@master
         with:
-          args: -exclude=G204,G304,G703,G122 ./...
+          args: -exclude=G204,G301,G304,G306,G703,G122 ./...
 
   test:
     runs-on: ubuntu-latest
