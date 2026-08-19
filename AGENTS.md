@@ -5,7 +5,7 @@ shell execution, background job management, and filesystem operations to AI agen
 MCP's Streamable HTTP transport (JSON-RPC over `POST /mcp`, not stdio). Tool semantics
 intentionally mirror [Crush](https://github.com/charmbracelet/crush)'s bash tool.
 
-Module: `github.com/aleksclark/bezalel` · Go 1.26.3. Dependencies: `spf13/cobra` +
+Module: `github.com/aleksclark/bezalel` · Go 1.26.6. Dependencies: `spf13/cobra` +
 `spf13/viper` (CLI/config) in the main module; `mark3labs/mcp-go` is used **only** by the
 e2e suite (behind the `e2e` build tag).
 

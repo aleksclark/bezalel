@@ -4,7 +4,7 @@
 # Node.js runtime) and is NOT meant for deployment — only for exercising the
 # lsp_* tools against genuine language servers.
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 
 WORKDIR /src
 COPY go.mod ./
@@ -26,7 +26,7 @@ COPY --from=builder /go/bin/gopls /usr/local/bin/gopls
 RUN ln -s /usr/local/go/bin/go /usr/local/bin/go
 
 # TypeScript language server (provides tsserver-backed diagnostics).
-RUN npm install -g --no-fund --no-audit typescript typescript-language-server \
+RUN npm install -g --no-fund --no-audit typescript@5.9.2 typescript-language-server \
     && npm cache clean --force
 
 COPY --from=builder /bezalel /usr/local/bin/bezalel
