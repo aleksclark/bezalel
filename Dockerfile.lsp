@@ -4,7 +4,7 @@
 # Node.js runtime) and is NOT meant for deployment — only for exercising the
 # lsp_* tools against genuine language servers.
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 
 WORKDIR /src
 COPY go.mod ./
