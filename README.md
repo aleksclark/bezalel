@@ -61,6 +61,29 @@ When `--auth-token`/`BEZALEL_AUTH_TOKEN` is set, every `/mcp` request must inclu
 `Authorization: Bearer <token>` header. If no token is configured the server logs a
 warning on startup and `/mcp` is publicly accessible.
 
+## Local development
+
+Host (no Docker):
+
+```bash
+go run ./cmd/bezalel --port 8080
+```
+
+Stacklane-compatible Compose (optional; parallel worktrees):
+
+```bash
+bash scripts/compose-dev.sh check
+bash scripts/compose-dev.sh up          # project: bezalel-<instance>
+bash scripts/compose-dev.sh endpoints   # FQDN + 127.0.0.1:<ephemeral>
+bash scripts/compose-dev.sh down        # volumes preserved
+```
+
+Instance slug comes from `STACKLANE_INSTANCE`, else the worktree directory name,
+else the git branch, else `dev`. Compose publishes only `127.0.0.1::8080`.
+The Stacklane daemon is optional; if it is absent, `status` reports
+`stacklane: BLOCKED` and the assigned loopback port still works. Production
+`Dockerfile` is unchanged. `destroy` requires `CONFIRM=bezalel-<instance>-destroy`.
+
 ### Language servers
 
 The `lsp_*` tools require language servers to be installed in the pod (bundled in

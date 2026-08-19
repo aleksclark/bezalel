@@ -1,0 +1,56 @@
+# Bezalel Stacklane-compatible local DEV stack.
+# Lifecycle: scripts/compose-dev.sh (always pass -p bezalel-<instance>).
+# Publish ONLY 127.0.0.1::<containerPort> (ephemeral host port).
+# Never 0.0.0.0 or fixed host ports.
+#
+# Production image remains Dockerfile. Host fallback is unchanged:
+#   go run ./cmd/bezalel --port 8080
+# Compose project name is supplied only by `docker compose -p`.
+# No secrets, no .local domains, no host network.
+
+---
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /src
+    # Air as PID1 (image CMD); no shell wrapper swallowing signals.
+    command: ["air", "-c", ".air.toml"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by compose lifecycle}
+      # Bind all container interfaces; host publish remains loopback ephemeral.
+      BEZALEL_HOST: "0.0.0.0"
+      BEZALEL_PORT: "8080"
+      BEZALEL_WORKDIR: /src
+      GOPATH: /go
+      GOCACHE: /go-cache
+      GOMODCACHE: /go/pkg/mod
+    volumes:
+      # Entire repo source RW for Air rebuilds.
+      - .:/src
+      - bezalel_go_mod_cache:/go/pkg/mod
+      - bezalel_go_build_cache:/go-cache
+      # Air binary and build errors stay off the host-mounted tracked tree.
+      - bezalel_air_tmp:/src/tmp
+    ports:
+      - "127.0.0.1::8080"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "bezalel"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by compose lifecycle}
+      stacklane.endpoint: "mcp"
+      stacklane.port: "8080"
+      stacklane.target_port: "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 180s
+    restart: unless-stopped
+
+volumes:
+  bezalel_go_mod_cache:
+  bezalel_go_build_cache:
+  bezalel_air_tmp:

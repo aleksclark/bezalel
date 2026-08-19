@@ -2,6 +2,9 @@
 /bezalel
 *.exe
 
+# Air / local build output
+/tmp/
+
 # IDE
 .idea/
 .vscode/

@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1.7
+# Bezalel DEV image — Air hot-reload, source bind-mounted at runtime.
+# Do not use for production (see Dockerfile). Host fallback remains:
+#   go run ./cmd/bezalel --port 8080
+
+ARG AIR_VERSION=v1.67.4
+
+FROM golang:1.26-bookworm
+
+ARG AIR_VERSION
+ENV CGO_ENABLED=0 \
+    GO111MODULE=on \
+    GOPATH=/go \
+    GOCACHE=/go-cache \
+    GOMODCACHE=/go/pkg/mod \
+    PATH=/go/bin:/usr/local/go/bin:$PATH
+
+# curl is used by the compose healthcheck against GET /health.
+# bash/coreutils/git/ripgrep match the production sidecar tool surface.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      git \
+      ca-certificates \
+      curl \
+      bash \
+      coreutils \
+      ripgrep \
+ && rm -rf /var/lib/apt/lists/* \
+ && go install github.com/air-verse/air@${AIR_VERSION} \
+ && air -v \
+ && mkdir -p /tmp/air /go-cache /src/tmp
+
+WORKDIR /src
+
+# Air as PID1 so SIGTERM reaches the watcher directly.
+# Compose bind-mounts source over /src; binary/tmp live on a named volume.
+CMD ["air", "-c", ".air.toml"]
