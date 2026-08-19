@@ -53,6 +53,10 @@ jobs:
 
       - name: gosec
         uses: securego/gosec@master
+        env:
+          # The gosec action image may lag the pinned patch release; force the
+          # same toolchain used by the module and setup-go jobs.
+          GOTOOLCHAIN: go1.26.6
         with:
           args: -exclude=G204,G301,G304,G306,G703,G122,G118 ./...
 
