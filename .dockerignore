@@ -1,0 +1,7 @@
+.git
+.github
+tmp
+*.exe
+.idea
+.vscode
+.DS_Store

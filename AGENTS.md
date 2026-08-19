@@ -19,9 +19,13 @@ go test -race -v -count=1 ./...      # unit suite (CI uses -race; keep tests rac
 go test -tags e2e -count=1 ./test/e2e/...   # e2e suite — requires Docker
 go vet ./...
 gofmt -l .                           # CI fails if this lists ANY file; run `gofmt -w .` to fix
-go run ./cmd/bezalel --port 8080 --workdir /path --auth-token secret   # run locally
+go run ./cmd/bezalel --port 8080 --workdir /path --auth-token secret   # run locally (host fallback)
 docker build -t bezalel:ci .
+bash scripts/compose-dev.sh check    # fail-closed Stacklane compose contract
+bash scripts/compose-dev.sh up       # compose project bezalel-${STACKLANE_INSTANCE}
 ```
+
+Stacklane compose (optional local sidecar): `docker-compose.yml` + `Dockerfile.dev` bind-mount source at `/src` with named Go module/build caches. Lifecycle is `scripts/compose-dev.sh` (`check`/`up`/`status`/`endpoints`/`logs`/`down`/`destroy`) and the matching `paseo.json` scripts. Always `docker compose -p bezalel-<instance>`. `down` never uses `-v`; `destroy` requires `CONFIRM=bezalel-<instance>-destroy`. Production `Dockerfile` and host `go run ./cmd/bezalel --port 8080` are unchanged.
 
 Lint is `golangci-lint` (CI pins **v2.12**, `--timeout=5m`). Security scans: `govulncheck`
 (advisory only) and `gosec` with `-exclude=G204,G301,G304,G306,G703,G122` — these exclusions

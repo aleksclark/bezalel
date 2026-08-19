@@ -1,0 +1,43 @@
+# Air config for Stacklane compose (air-verse/air v1.67.x schema).
+# Binary/tmp live under ./tmp (compose mounts a named volume at /src/tmp).
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  args_bin = ["--port", "8080", "--workdir", "/src"]
+  bin = "./tmp/bezalel"
+  # -buildvcs=false: bind-mounted .git is owned by the host UID; container git
+  # rejects it as "dubious ownership", which otherwise aborts VCS stamping.
+  cmd = "go build -buildvcs=false -o ./tmp/bezalel ./cmd/bezalel"
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", ".git"]
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  include_ext = ["go"]
+  include_dir = ["cmd", "internal"]
+  kill_delay = "2s"
+  log = "build-errors.log"
+  poll = false
+  rerun = false
+  send_interrupt = true
+  stop_on_error = false
+
+[color]
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
