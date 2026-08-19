@@ -26,7 +26,7 @@ COPY --from=builder /go/bin/gopls /usr/local/bin/gopls
 RUN ln -s /usr/local/go/bin/go /usr/local/bin/go
 
 # TypeScript language server (provides tsserver-backed diagnostics).
-RUN npm install -g --no-fund --no-audit typescript typescript-language-server \
+RUN npm install -g --no-fund --no-audit typescript@5.9.2 typescript-language-server \
     && npm cache clean --force
 
 COPY --from=builder /bezalel /usr/local/bin/bezalel
